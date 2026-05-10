@@ -1,0 +1,22 @@
+# Model checkpoints
+*.bin
+*.safetensors
+*.pt
+*.pth
+hilisenti_model/
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Distribution
+dist/
+build/
+*.egg-info/
