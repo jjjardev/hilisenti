@@ -1,7 +1,7 @@
 # HiliSenti: A Multi‑Domain Sentiment Analysis Dataset and Model for Hiligaynon
 
 [![Hugging Face Dataset](https://img.shields.io/badge/🤗%20Dataset-HiliSenti--v1-yellow)](https://huggingface.co/datasets/jjjardev/hilisenti-v1)
-[![DOI](https://zenodo.org/badge/DOI/10.57967/hf/8737.svg)](https://doi.org/10.57967/hf/8737)
+[![DOI](https://img.shields.io/badge/DOI-10.57967%2Fhf%2F8737-blue)](https://doi.org/10.57967/hf/8737)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/Dataset%20License-CC%20BY--NC--SA%204.0-lightgrey)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Code License: MIT](https://img.shields.io/badge/Code%20License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/XXXX.XXXXX) _(paper forthcoming)_
