@@ -1,18 +1,13 @@
 """
 HiliSenti Training Script
-Train XLM‑RoBERTa‑large for Hiligaynon sentiment analysis on the
-jjjardev/hilisenti‑v1 dataset.
+Train XLM-RoBERTa-large for Hiligaynon sentiment analysis on the
+jjjardev/hilisenti-v1 dataset.
 """
 
-import os
-import re
-import unicodedata
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
-from collections import Counter
-from datasets import load_dataset
+from datasets import load_dataset, Dataset as HFDataset
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
@@ -31,54 +26,58 @@ from sklearn.metrics import (
     balanced_accuracy_score,
 )
 from sklearn.utils import class_weight
-import matplotlib.pyplot as plt
-import seaborn as sns
+
+from preprocess import HILIGAYNON_TOKENS, normalize_frame
 
 # ---------------------------------------
 # CONFIGURATION
 # ---------------------------------------
 DATASET_NAME = "jjjardev/hilisenti-v1"  # Hugging Face dataset
 OUTPUT_DIR = "./hilisenti_model"        # where to save model & tokenizer
+BASE_MODEL = "xlm-roberta-large"
 MAX_LENGTH = 128
 BATCH_SIZE = 16
 EVAL_BATCH_SIZE = 32
 LEARNING_RATE = 2e-5
 EPOCHS = 5
 GRADIENT_ACCUMULATION = 2
+LABEL_SMOOTHING = 0.1
 SEED = 42
 
+LABELS = {0: "Negative", 1: "Neutral", 2: "Positive"}
+
+
 # ---------------------------------------
-# TEXT NORMALIZATION
+# TOKENIZER VOCABULARY AUGMENTATION
 # ---------------------------------------
-def normalize_hiligaynon(text):
-    if pd.isna(text):
-        return ""
-    text = unicodedata.normalize('NFKC', str(text))
-    text = text.lower()
-    text = re.sub(r'\b(ha){2,}[h]*\b', 'hahaha', text)
-    text = re.sub(r'\b(he){2,}[h]*\b', 'hehehe', text)
-    text = re.sub(r'\b([a-z]{3,})2\b', r'\1-\1', text)
-    text = re.sub(r'(\w+)-\1', r'\1 \1', text)
-    replacements = {
-        r'\bwla\b': 'wala', r'\bwaay\b': 'wala', r'\bway\b': 'wala',
-        r'\bndi\b': 'indi', r'\bnd\b': 'indi',
-        r'\bgd\b': 'gid', r'\bgud\b': 'gid', r'\bmn\b': 'man',
-        r'\bnmn\b': 'naman', r'\bna lng\b': 'nalang', r'\bnlng\b': 'nalang',
-        r'\bbl\b': 'bala', r'\btni\b': 'tani', r'\btne\b': 'tani',
-        r'\bsya\b': 'siya', r'\bxa\b': 'siya', r'\bxia\b': 'siya',
-        r'\bnya\b': 'niya', r'\bnyo\b': 'ninyo', r'\bcmu\b': 'sa imo',
-        r'\bsakn\b': 'sa akon', r'\bskn\b': 'sa akon', r'\bkw\b': 'ikaw',
-        r'\bky\b': 'kay', r'\bmng\b': 'mga', r'\bdpt\b': 'dapat',
-        r'\bsbng\b': 'subong', r'\bkrn\b': 'karon', r'\bhlng\b': 'halong',
-        r'\bamo\b': 'amo', r'\bamu\b': 'amo',
-        r'\bpro\b': 'pero', r'\bpru\b': 'pero',
-        r'\bkg\b': 'kag', r'\bkng\b': 'kon', r'\bkun\b': 'kon',
-    }
-    for pattern, replacement in replacements.items():
-        text = re.sub(pattern, replacement, text)
-    text = re.sub(r'([a-z])\1{2,}', r'\1\1', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+def add_hiligaynon_tokens(tokenizer, model):
+    """Add the 46 in-vocabulary Hiligaynon terms and grow the embedding matrix.
+
+    The released checkpoint has vocab_size 250048 against the base model's
+    250002, so the terms must be appended in the order given by
+    HILIGAYNON_TOKENS to land on the same ids. New rows are initialised to the
+    mean of the sub-word embeddings the base tokenizer would have produced,
+    which keeps them in-distribution with the pre-trained space.
+    """
+    added = tokenizer.add_tokens(HILIGAYNON_TOKENS)
+    if added != len(HILIGAYNON_TOKENS):
+        raise RuntimeError(
+            f"expected to add {len(HILIGAYNON_TOKENS)} tokens, added {added}"
+        )
+    model.resize_token_embeddings(len(tokenizer))
+
+    input_embeddings = model.get_input_embeddings().weight.data
+    with torch.no_grad():
+        for token in HILIGAYNON_TOKENS:
+            pieces = tokenizer.tokenize(token)
+            if not pieces:
+                raise RuntimeError(f"{token!r} tokenized to nothing")
+            subword_ids = tokenizer.convert_tokens_to_ids(pieces)
+            token_id = tokenizer.convert_tokens_to_ids(token)
+            input_embeddings[token_id] = input_embeddings[subword_ids].mean(dim=0)
+
+    return tokenizer, model
+
 
 # ---------------------------------------
 # METRICS
@@ -107,21 +106,17 @@ def compute_metrics(eval_pred):
         "recall_positive": recall_per_class[2],
     }
 
+
 def main():
     # Load dataset from Hugging Face
     dataset = load_dataset(DATASET_NAME)
-    train_df = dataset["train"].to_pandas()
-    val_df = dataset["validation"].to_pandas()
-    test_df = dataset["test"].to_pandas()
+    train_df = normalize_frame(dataset["train"].to_pandas())
+    val_df = normalize_frame(dataset["validation"].to_pandas())
+    test_df = normalize_frame(dataset["test"].to_pandas())
 
     # Clean labels (should already be integers)
     for df in [train_df, val_df, test_df]:
         df["label"] = df["label"].astype(int)
-
-    # Normalize text
-    print("Normalizing datasets...")
-    for df in [train_df, val_df, test_df]:
-        df["sentence"] = df["sentence"].apply(normalize_hiligaynon)
 
     print(f"Train: {len(train_df)} samples, Val: {len(val_df)}, Test: {len(test_df)}")
 
@@ -134,9 +129,18 @@ def main():
     class_weights_tensor = torch.tensor(class_weights, dtype=torch.float)
     print("Class Weights:", class_weights_tensor)
 
-    # Tokenizer & model
-    model_ckpt = "xlm-roberta-large"
-    tokenizer = AutoTokenizer.from_pretrained(model_ckpt)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        BASE_MODEL,
+        num_labels=3,
+        id2label=LABELS,
+        label2id={v: k for k, v in LABELS.items()},
+    )
+
+    # Grow the vocabulary before tokenizing so the new terms are single tokens
+    tokenizer, model = add_hiligaynon_tokens(tokenizer, model)
+    print(f"Vocabulary: {len(tokenizer)} tokens "
+          f"(embedding matrix {model.get_input_embeddings().num_embeddings})")
 
     def tokenize_fn(batch):
         return tokenizer(
@@ -146,7 +150,6 @@ def main():
             max_length=MAX_LENGTH,
         )
 
-    from datasets import Dataset as HFDataset
     train_ds = HFDataset.from_pandas(train_df[['sentence', 'label']])
     val_ds = HFDataset.from_pandas(val_df[['sentence', 'label']])
     test_ds = HFDataset.from_pandas(test_df[['sentence', 'label']])
@@ -155,15 +158,33 @@ def main():
     tokenized_val = val_ds.map(tokenize_fn, batched=True, remove_columns=["sentence"])
     tokenized_test = test_ds.map(tokenize_fn, batched=True, remove_columns=["sentence"])
 
-    # Model
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_ckpt,
-        num_labels=3,
-        id2label={0: "Negative", 1: "Neutral", 2: "Positive"},
-        label2id={"Negative": 0, "Neutral": 1, "Positive": 2},
-    )
+    class WeightedLabelSmootherLoss(nn.Module):
+        """Class-weighted cross-entropy with label smoothing.
 
-    # Custom trainer with weighted loss
+        Trainer only applies TrainingArguments.label_smoothing_factor inside its
+        own loss, so overriding compute_loss without handling it makes the
+        setting a silent no-op. Smoothing here is the standard convex blend of
+        the weighted target distribution and a uniform distribution.
+        """
+
+        def __init__(self, weight, epsilon):
+            super().__init__()
+            self.weight = weight
+            self.epsilon = epsilon
+
+        def forward(self, logits, labels):
+            log_probs = nn.functional.log_softmax(logits, dim=-1)
+            weighted_nll = -log_probs.gather(
+                dim=-1, index=labels.unsqueeze(-1)
+            ).squeeze(-1)
+            if self.weight is not None:
+                weighted_nll = weighted_nll * self.weight[labels]
+            smooth = -log_probs.mean(dim=-1)
+            if self.weight is not None:
+                smooth = smooth * self.weight[labels]
+            return ((1.0 - self.epsilon) * weighted_nll
+                    + self.epsilon * smooth).mean()
+
     class CustomTrainer(Trainer):
         def __init__(self, class_weights, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -173,7 +194,10 @@ def main():
             labels = inputs.pop("labels")
             outputs = model(**inputs)
             logits = outputs.get("logits")
-            loss_fct = nn.CrossEntropyLoss(weight=self.class_weights.to(model.device))
+            loss_fct = WeightedLabelSmootherLoss(
+                weight=self.class_weights.to(model.device),
+                epsilon=LABEL_SMOOTHING,
+            )
             loss = loss_fct(logits.view(-1, self.model.config.num_labels), labels.view(-1))
             return (loss, outputs) if return_outputs else loss
 
@@ -199,7 +223,9 @@ def main():
         greater_is_better=True,
         logging_strategy="steps",
         logging_steps=50,
-        report_to="none",  # set to "tensorboard" if you have it
+        report_to="tensorboard",
+        # load_best_model_at_end needs at least two checkpoints retained: the
+        # best one and the one it is compared against.
         save_total_limit=2,
         seed=SEED,
     )
@@ -222,10 +248,21 @@ def main():
     test_results = trainer.evaluate(tokenized_test)
     print(f"\nTest Results: {test_results}")
 
+    # Per-class report and confusion matrix, matching Table 3 and Figure 2
+    predictions = np.argmax(trainer.predict(tokenized_test).predictions, axis=-1)
+    gold = test_df["label"].to_numpy()
+    print("\nClassification report:")
+    print(classification_report(gold, predictions, target_names=list(LABELS.values()),
+                                digits=3, zero_division=0))
+    cm = confusion_matrix(gold, predictions, labels=[0, 1, 2])
+    print("Confusion matrix (rows = true, cols = predicted):")
+    print(cm)
+
     # Save model and tokenizer
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
     print(f"Model saved to {OUTPUT_DIR}")
+
 
 if __name__ == "__main__":
     main()
