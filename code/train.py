@@ -41,7 +41,13 @@ EVAL_BATCH_SIZE = 32
 LEARNING_RATE = 2e-5
 EPOCHS = 5
 GRADIENT_ACCUMULATION = 2
-LABEL_SMOOTHING = 0.1
+# Label smoothing is 0.0 to match the released checkpoint. The saved
+# training_args.bin from that run records label_smoothing_factor = 0.1, but
+# Trainer's built-in loss -- the only consumer of that setting -- is replaced
+# by the class-weighted objective in CustomTrainer, so the factor never
+# applied. Set this to 0.1 to train with smoothing; it will not reproduce the
+# released weights.
+LABEL_SMOOTHING = 0.0
 SEED = 42
 
 LABELS = {0: "Negative", 1: "Neutral", 2: "Positive"}
@@ -158,13 +164,14 @@ def main():
     tokenized_val = val_ds.map(tokenize_fn, batched=True, remove_columns=["sentence"])
     tokenized_test = test_ds.map(tokenize_fn, batched=True, remove_columns=["sentence"])
 
-    class WeightedLabelSmootherLoss(nn.Module):
-        """Class-weighted cross-entropy with label smoothing.
+    class WeightedLoss(nn.Module):
+        """Class-weighted cross-entropy, optionally label-smoothed.
 
-        Trainer only applies TrainingArguments.label_smoothing_factor inside its
-        own loss, so overriding compute_loss without handling it makes the
-        setting a silent no-op. Smoothing here is the standard convex blend of
-        the weighted target distribution and a uniform distribution.
+        Trainer only applies TrainingArguments.label_smoothing_factor inside
+        its own loss, so overriding compute_loss without handling it makes the
+        setting a silent no-op. When epsilon is 0 this reduces exactly to
+        weighted cross-entropy, which is what produced the released weights.
+        Smoothing blends the weighted target distribution with a uniform one.
         """
 
         def __init__(self, weight, epsilon):
@@ -194,7 +201,7 @@ def main():
             labels = inputs.pop("labels")
             outputs = model(**inputs)
             logits = outputs.get("logits")
-            loss_fct = WeightedLabelSmootherLoss(
+            loss_fct = WeightedLoss(
                 weight=self.class_weights.to(model.device),
                 epsilon=LABEL_SMOOTHING,
             )
