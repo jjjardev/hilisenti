@@ -1,12 +1,13 @@
-# HiliSenti: A Multi‑Domain Sentiment Analysis Dataset and Model for Hiligaynon
+# HiliSenti: A Multi‑Domain Sentiment Analysis Dataset for Hiligaynon
 
 [![Hugging Face Dataset](https://img.shields.io/badge/🤗%20Dataset-HiliSenti--v1-yellow)](https://huggingface.co/datasets/jjjardev/hilisenti-v1)
-[![DOI](https://img.shields.io/badge/DOI-10.57967%2Fhf%2F8737-blue)](https://doi.org/10.57967/hf/8737)
+[![Hugging Face Model](https://img.shields.io/badge/🤗%20Model-HiliSenti--v1--model-yellow)](https://huggingface.co/jjjardev/hilisenti-v1-model)
+[![DOI](https://img.shields.io/badge/Dataset%20DOI-10.57967%2Fhf%2F8737-blue)](https://doi.org/10.57967/hf/8737)
+[![Model DOI](https://img.shields.io/badge/Model%20DOI-10.57967%2Fhf%2F9302-blue)](https://doi.org/10.57967/hf/9302)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/Dataset%20License-CC%20BY--NC--SA%204.0-lightgrey)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Code License: MIT](https://img.shields.io/badge/Code%20License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/XXXX.XXXXX) _(paper forthcoming)_
 
-**HiliSenti** is the first large‑scale, multi‑domain sentiment analysis dataset for **Hiligaynon**, an Austronesian language spoken by over 10 million people in the Philippines. The dataset contains **23,337** real‑world Hiligaynon sentences—many exhibiting natural code‑switching with Tagalog and English—manually annotated for sentiment (Negative, Neutral, Positive). Alongside the dataset, we provide a fine‑tuned **XLM‑RoBERTa‑large** model that achieves state‑of‑the‑art performance on Hiligaynon sentiment classification.
+**HiliSenti** is the first large‑scale, multi‑domain sentiment analysis dataset for **Hiligaynon**, an Austronesian language spoken by over 10 million people in the Philippines. The dataset contains **23,337** Hiligaynon sentences—many exhibiting natural code‑switching with Tagalog and English—annotated for sentiment (Negative, Neutral, Positive) under a hybrid human‑AI pipeline. Alongside the dataset, we provide a fine‑tuned **XLM‑RoBERTa‑large** model that establishes the first reported baseline for Hiligaynon sentiment classification at 93.5% test accuracy.
 
 ---
 
@@ -55,9 +56,9 @@ A full **Dataset Card** (covering sources, annotation process, biases, and limit
 
 We fine‑tuned **xlm‑roberta‑large** (355 M parameters) using cross‑lingual transfer learning. The training script in this repository reproduces the entire training pipeline.
 
-- **Model weights:** The full fine‑tuned checkpoint is currently available upon request for non‑commercial research use.
-  A **LoRA adapter** (lightweight, open‑source) is planned for release after the publication of the accompanying paper.
-- **Inference code:** Coming soon – you will be able to load the adapter on top of the base `xlm‑roberta‑large` model using a few lines of code.
+- **Model weights:** publicly available on Hugging Face at [`jjjardev/hilisenti‑v1‑model`](https://huggingface.co/jjjardev/hilisenti‑v1-model) (DOI [`10.57967/hf/9302`](https://doi.org/10.57967/hf/9302)), released under CC BY‑NC‑SA 4.0.
+- **Inference:** the model card and `hilisenti_test.ipynb` in that repository show single‑sentence and batch usage.
+- **Preprocessing matters:** the checkpoint was trained on normalized text. Import `code/preprocess.py` and call `normalize_hiligaynon()` on your input before predicting, otherwise accuracy will be lower than reported.
 
 ---
 
@@ -65,17 +66,20 @@ We fine‑tuned **xlm‑roberta‑large** (355 M parameters) using cross‑lin
 
 Evaluation on the held‑out **test set** (2,242 sentences) using the fine‑tuned model:
 
-| Metric        | Overall   | Negative | Neutral  | Positive |
-| ------------- | --------- | -------- | -------- | -------- |
-| **Precision** | 0.94      | 0.95     | 0.93     | 0.93     |
-| **Recall**    | 0.94      | 0.95     | 0.90     | 0.95     |
-| **F1‑score**  | **0.94**  | **0.95** | **0.91** | **0.94** |
-| **Accuracy**  | **93.5%** |          |          |          |
+| Metric        | Weighted avg. | Negative | Neutral  | Positive |
+| ------------- | ------------- | -------- | -------- | -------- |
+| **Precision** | 0.94          | 0.95     | 0.93     | 0.93     |
+| **Recall**    | 0.94          | 0.95     | 0.90     | 0.95     |
+| **F1‑score**  | 0.94          | **0.95** | **0.91** | **0.94** |
 
+The per‑class averages above are weighted by class support, which is why they differ
+slightly from the unweighted figures:
+
+- **Accuracy:** 93.5%
 - **Macro F1:** 93.36%
 - **Balanced accuracy:** 93.29%
 
-The model easily exceeds the project’s original target of **≥80% F1‑score**, demonstrating that cross‑lingual transfer learning can effectively handle an extremely low‑resource language like Hiligaynon.
+The model easily exceeds the project’s original target of **≥80% F1‑score**, demonstrating that cross‑lingual transfer learning can effectively handle an extremely low‑resource language like Hiligaynon. As the first sentiment resource for Hiligaynon, there is no prior Hiligaynon baseline to compare against.
 
 ---
 
